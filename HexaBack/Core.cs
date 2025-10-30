@@ -7,7 +7,6 @@ using UnityEngine;
 
 [assembly: MelonInfo(typeof(HexaBack.Core), "HexaBack", "1.0.0", "freakycheesy", null)]
 [assembly: MelonGame("Stress Level Zero", "BONELAB")]
-
 namespace HexaBack
 {
     public class Core : MelonMod
@@ -19,7 +18,7 @@ namespace HexaBack
             LoggerInstance.Msg("Initialized HexaBack.");
             CreatePrefs();
             CreateBoneMenu();
-            Hooking.OnLevelLoaded += Hooking_OnMarrowGameStarted;
+            Hooking.OnLevelLoaded += (_) => MakeHeptabodyHexabody(!modEnabled.Value);
         }
 
         private static void CreatePrefs() {
@@ -32,6 +31,7 @@ namespace HexaBack
             page = Page.Root.CreatePage("Hexaback", Color.green);
             page.CreateBool("Toggle Mod (Works on Level Load)", Color.green, modEnabled.Value, (a) => {
                 modEnabled.Value = a;
+                MakeHeptabodyHexabody(!modEnabled.Value);
                 Save();
             });
         }
@@ -46,33 +46,44 @@ namespace HexaBack
             base.OnApplicationQuit();
         }
 
-        private void Hooking_OnMarrowGameStarted(LevelInfo info) {
-            MakeHeptabodyHexabody(Player.PhysicsRig);
-        }
-
-        private static void MakeHeptabodyHexabody(PhysicsRig rig) {
+        private static void MakeHeptabodyHexabody(bool revert) {
+            var rig = Player.PhysicsRig;
             var lShoulder = rig.m_shoulderLf.GetComponent<Collider>();
             var rShoulder = rig.m_shoulderRt.GetComponent<Collider>();
-            var lElbow = rig.m_elbowLf.GetComponent<Collider>();
-            var rElbow = rig.m_elbowRt.GetComponent<Collider>();       
+            //var lElbow = rig.m_elbowLf.GetComponent<Collider>();
+            //var rElbow = rig.m_elbowRt.GetComponent<Collider>();       
             Hand[] hands = [
                     rig.leftHand,
                     rig.rightHand,
                 ];
-            if (!modEnabled.Value /*&& DefaultPhysicsRigInfo.Setup*/) {
-                //ResetToHeptaRig(lShoulder, rShoulder, lElbow, rElbow, hands);
-                return;
-            }
-            lShoulder.isTrigger = true;
-            rShoulder.isTrigger = true;
-            lElbow.isTrigger = true;
-            rElbow.isTrigger = true;
-            rig.manager.remapHeptaRig.jumpVelocity /= 1.3f;
+            lShoulder.isTrigger = !revert;
+            rShoulder.isTrigger = !revert;
+            //lElbow.isTrigger = !revert;
+            //rElbow.isTrigger = !revert;
+            float jumpVelocity = rig.manager.remapHeptaRig.jumpVelocity;
+            rig.manager.remapHeptaRig.jumpVelocity = revert ? jumpVelocity * jumpVelocityDivider : jumpVelocity / jumpVelocityDivider;
             foreach (var hand in hands) {
-                float multiplier = 2f;
-                hand.physHand._armInternalMult *= multiplier;
+                float _gripMult = hand.physHand.gripMult;
+                _gripMult = revert ? _gripMult / gripMultiplier : _gripMult * gripMultiplier;
+                hand.physHand.gripMult = _gripMult;
             }
         }
+        [HarmonyPatch(typeof(PhysicsRig))]
+        public static class ClimbPatch {
+            [HarmonyPatch(nameof(PhysicsRig.CheckClimb)), HarmonyPrefix]
+            public static bool CheckDangle(PhysicsRig __instance, ref bool __result) {
+                if (modEnabled.Value) {
+                    __result = false;
+                    return false;
+                }
+                else {
+                    return __result;
+                }
+            }
+        }
+        private const float jumpVelocityDivider = 1.5f;
+        private const float gripMultiplier = 0.1f;
+
         /*
         private static void ResetToHeptaRig(Collider lShoulder, Collider rShoulder, Collider lElbow, Collider rElbow, Hand[] hands) {
             lShoulder.isTrigger = DefaultPhysicsRigInfo.colliderTrigger;
